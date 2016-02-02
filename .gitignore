@@ -1,9 +1,9 @@
+*.csv
+*.log
 *.pdf
 *.txt
-*.csv
 *.xlsb
 *.xlsx
-*.log
 *~
 ~$*
 
