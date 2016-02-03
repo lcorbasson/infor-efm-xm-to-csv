@@ -1,5 +1,7 @@
 #!/bin/bash
 DATADIR="$(dirname "$(realpath "$0")")"
+TSDIR="$DATADIR/timesheets"
+TMPDIR="$DATADIR/temp"
 TMPFILE="$(mktemp)"
 RUN="$(date -Iseconds)"
 RUN="${RUN//:/}"
@@ -104,14 +106,18 @@ timesheetfile() {
   echo "$RUN _ $timesheet _ $beginning _ $end _ $tsref"
 }
 
+mkdir -p "$TMPDIR"
 pushd "$DATADIR"
 
+pushd "$TSDIR" || exit "Timesheet directory $TSDIR not found!" >&2
 for f in *.pdf; do 
 #  pdftotext -layout "$f" "$(timesheetfile "$f")"
   pdftotext -raw "$f" "$TMPFILE"
-  mv "$TMPFILE" "$(timesheetfile "$TMPFILE").txt"
+  mv "$TMPFILE" "$TMPDIR/$(timesheetfile "$TMPFILE").txt"
 done
+popd
 
+pushd "$TMPDIR"
 echo "Début de semaine	Fin de semaine	Code projet	Projet	Type	Lu	Ma	Me	Je	Ve	Sa	Di	Total" > "$WEEKLYFILE"
 for f in "$RUN _ "*.txt; do
   lines="$(($(grep -n '^Total $' "$f" | cut -f1 -d:)+1))$(grep -n '\.00 $' "$f" | while IFS=':' read n l; do echo -n " $(($n+1))"; done)"
@@ -140,9 +146,10 @@ for f in "$RUN _ "*.txt; do
   done
 done | sort \
   | awk 'BEGIN{ FS="\t"; OFS=FS; } { printf "%s\t%s\t%-23s\t%-31s\t%-39s\t", $1, $2, $3, $4, $5; print $6, $7, $8, $9, $10, $11, $12, $13; }' \
-  >> "$WEEKLYFILE"
+  >> "$DATADIR/$WEEKLYFILE"
+popd
 
-
+pushd "$DATADIR"
 echo "Jour	Code projet	Projet	Type	Charge" > "$DAILYFILE"
 sed -e '1d' "$WEEKLYFILE" | while IFS=$'\t' read d1 d2 code projet type lu ma me je ve sa di total; do
   (
@@ -242,9 +249,11 @@ while [ $i -le $lastdate ]; do
   [ $d -gt 31 ] && i=$(($i-($i%100)+101))
   [ $m -gt 12 ] && i=$(($i-($i%10000)+10101))
 done >> "$DAILYSUMFILE"
+popd
 
-
-rm "$RUN _ "*.txt
+pushd "$TMPDIR" && rm *.txt
+rm "$RUN _ "*.txt 2> /dev/null
+popd
 
 popd
 
