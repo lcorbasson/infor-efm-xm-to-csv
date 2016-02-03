@@ -106,149 +106,163 @@ timesheetfile() {
   echo "$RUN _ $timesheet _ $beginning _ $end _ $tsref"
 }
 
+tstotxt() {
+  for f in *.pdf; do 
+  #  pdftotext -layout "$f" "$(timesheetfile "$f")"
+    pdftotext -raw "$f" "$TMPFILE"
+    mv "$TMPFILE" "$TMPDIR/$(timesheetfile "$TMPFILE").txt"
+  done
+}
+
+txttoweekly() {
+  echo "Début de semaine	Fin de semaine	Code projet	Projet	Type	Lu	Ma	Me	Je	Ve	Sa	Di	Total" > "$WEEKLYFILE"
+  for f in "$RUN _ "*.txt; do
+    lines="$(($(grep -n '^Total $' "$f" | cut -f1 -d:)+1))$(grep -n '\.00 $' "$f" | while IFS=':' read n l; do echo -n " $(($n+1))"; done)"
+    read -a lines <<< "$lines"
+    unset lines[${#lines[@]}-1]
+    i=1
+    while [ $i -lt ${#lines[@]} ]; do
+      echo -n "$f" \
+        | sed -e 's,.* _ \([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\) _ \([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\) _ .*,\1\t\2\t,g'
+      sed -n -e "${lines[$i-1]},$((${lines[$i]}-1))"'p' "$f" | tr '\n' '\t' \
+        | iconv -f utf-8 -t ascii//translit \
+        | tr -d "'^\`" \
+        | sed \
+        -e 's,-\t,-,g' \
+        -e 's,\t, ,g' \
+        -e 's,^\([A-Z0-9]*-*[A-Z0-9]*\)  *\(.*\)  *\(Facturable  *[A-Z ]*[A-Z]  \|Non facturable    \|Non facturable  [A-Z][A-Z]* *[A-Z][A-Z]*  \)  \([0-9.-]*\)  \([0-9.-]*\)  \([0-9.-]*\)  \([0-9.-]*\)  \([0-9.-]*\)  *[0-9.-][0-9.-]*  *\([0-9.-][0-9.-]*\) *$,\1\t\2\t\3\t\4\t\5\t\6\t\7\t\8\t0.00\t0.00\t\9\t,g' \
+        -e 's,\.00,,g' \
+        -e 's,\t\t,\t0\t,g' \
+        -e 's,\t\t,\t0\t,g' \
+        -e 's,\t\([0-9]\)\t,\t  \1\t,g' \
+        -e 's,\t\([0-9]\)\t,\t  \1\t,g' \
+        -e 's,\t\([0-9-][0-9]\)\t,\t \1\t,g' \
+        -e 's,\t\([0-9-][0-9]\)\t,\t \1\t,g' \
+        -e 's,\t$,\n,g'
+      i=$(($i+1))
+    done
+  done | sort \
+    | awk 'BEGIN{ FS="\t"; OFS=FS; } { printf "%s\t%s\t%-23s\t%-31s\t%-39s\t", $1, $2, $3, $4, $5; print $6, $7, $8, $9, $10, $11, $12, $13; }' \
+    >> "$DATADIR/$WEEKLYFILE"
+}
+
+weeklytodaily() {
+  echo "Jour	Code projet	Projet	Type	Charge" > "$DAILYFILE"
+  sed -e '1d' "$WEEKLYFILE" | while IFS=$'\t' read d1 d2 code projet type lu ma me je ve sa di total; do
+    (
+      date -Idate -d"$d1 + 0 day"
+      echo "$code"
+      echo "$projet"
+      echo "$type"
+    ) | tr '\n' '\t'
+      echo "$lu"
+    (
+      date -Idate -d"$d1 + 1 day"
+      echo "$code"
+      echo "$projet"
+      echo "$type"
+    ) | tr '\n' '\t'
+      echo "$ma"
+    (
+      date -Idate -d"$d1 + 2 day"
+      echo "$code"
+      echo "$projet"
+      echo "$type"
+    ) | tr '\n' '\t'
+      echo "$me"
+    (
+      date -Idate -d"$d1 + 3 day"
+      echo "$code"
+      echo "$projet"
+      echo "$type"
+    ) | tr '\n' '\t'
+      echo "$je"
+    (
+      date -Idate -d"$d1 + 4 day"
+      echo "$code"
+      echo "$projet"
+      echo "$type"
+    ) | tr '\n' '\t'
+      echo "$ve"
+    (
+      date -Idate -d"$d1 + 5 day"
+      echo "$code"
+      echo "$projet"
+      echo "$type"
+    ) | tr '\n' '\t'
+      echo "$sa"
+    (
+      date -Idate -d"$d1 + 6 day"
+      echo "$code"
+      echo "$projet"
+      echo "$type"
+    ) | tr '\n' '\t'
+      echo "$di"
+  done | sort >> "$DAILYFILE"
+}
+
+dailytodailysum() {
+  projects="$(sed -e '1d' < "$DAILYFILE" | cut -d'	' -f2-4 | sort -u)"
+  firstdate="$(sed -n -e '2p' "$DAILYFILE" | cut -d'	' -f1)"
+  firstdate="${firstdate//-/}"
+  lastdate="$(tail -1 "$DAILYFILE" | cut -d'	' -f1)"
+  lastdate="${lastdate//-/}"
+  i="$firstdate"
+  xx="00"
+  declare -A daypartA
+  declare -A daypartB
+  echo "Créneau	Date	Activité	Code projet	Projet	Type" > "$DAILYSUMFILE"
+  while [ $i -le $lastdate ]; do
+    y=$(($i/10000))
+    m=$((($i%10000)/100))
+    d=$(($i%100))
+    ymd="$y-${xx:${#m}}$m-${xx:${#d}}$d"
+    lines="$(sed -n -e "$(grep -n "^$ymd	" "$DAILYFILE" | sed -n -e 's,^\([0-9]*\):.*,\1,g;1p;$p' | tr '\n' ',' | sed -e 's,.$,{/\t0$/d;p},g')" "$DAILYFILE")"
+    while IFS='' read -r project; do
+      sum=$(($(grep -e "^$ymd	$project	" <<< "$lines" | cut -d'	' -f5 | tr '\n' '+')0))
+      case $sum in
+        0)
+          ;;
+        5)
+          if [ -z "${daypartA[$i]}" ]; then
+            daypartA[$i]="$project"
+          else
+            daypartB[$i]="$project"
+          fi
+        ;;
+        10)
+          daypartA[$i]="$project"
+          daypartB[$i]="$project"
+        ;;
+        *)
+          echo "Erreur : $ymd : somme des charges : $sum !" >&2
+          echo "$lines" | sed -e 's,^,\t,g' >&2
+      esac
+    done <<< "$projects"
+    if [ -n "${daypartA[$i]}" ]; then
+      echo "$ymd-A	$ymd	$(timetype "${daypartA[$i]}")	${daypartA[$i]}"
+      echo "$ymd-B	$ymd	$(timetype "${daypartB[$i]}")	${daypartB[$i]}"
+    fi
+    i=$(($i+1))
+    [ $d -gt 31 ] && i=$(($i-($i%100)+101))
+    [ $m -gt 12 ] && i=$(($i-($i%10000)+10101))
+  done >> "$DAILYSUMFILE"
+}
+
 mkdir -p "$TMPDIR"
 pushd "$DATADIR"
 
 pushd "$TSDIR" || exit "Timesheet directory $TSDIR not found!" >&2
-for f in *.pdf; do 
-#  pdftotext -layout "$f" "$(timesheetfile "$f")"
-  pdftotext -raw "$f" "$TMPFILE"
-  mv "$TMPFILE" "$TMPDIR/$(timesheetfile "$TMPFILE").txt"
-done
+tstotxt
 popd
 
 pushd "$TMPDIR"
-echo "Début de semaine	Fin de semaine	Code projet	Projet	Type	Lu	Ma	Me	Je	Ve	Sa	Di	Total" > "$WEEKLYFILE"
-for f in "$RUN _ "*.txt; do
-  lines="$(($(grep -n '^Total $' "$f" | cut -f1 -d:)+1))$(grep -n '\.00 $' "$f" | while IFS=':' read n l; do echo -n " $(($n+1))"; done)"
-  read -a lines <<< "$lines"
-  unset lines[${#lines[@]}-1]
-  i=1
-  while [ $i -lt ${#lines[@]} ]; do
-    echo -n "$f" \
-      | sed -e 's,.* _ \([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\) _ \([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\) _ .*,\1\t\2\t,g'
-    sed -n -e "${lines[$i-1]},$((${lines[$i]}-1))"'p' "$f" | tr '\n' '\t' \
-      | iconv -f utf-8 -t ascii//translit \
-      | tr -d "'^\`" \
-      | sed \
-      -e 's,-\t,-,g' \
-      -e 's,\t, ,g' \
-      -e 's,^\([A-Z0-9]*-*[A-Z0-9]*\)  *\(.*\)  *\(Facturable  *[A-Z ]*[A-Z]  \|Non facturable    \|Non facturable  [A-Z][A-Z]* *[A-Z][A-Z]*  \)  \([0-9.-]*\)  \([0-9.-]*\)  \([0-9.-]*\)  \([0-9.-]*\)  \([0-9.-]*\)  *[0-9.-][0-9.-]*  *\([0-9.-][0-9.-]*\) *$,\1\t\2\t\3\t\4\t\5\t\6\t\7\t\8\t0.00\t0.00\t\9\t,g' \
-      -e 's,\.00,,g' \
-      -e 's,\t\t,\t0\t,g' \
-      -e 's,\t\t,\t0\t,g' \
-      -e 's,\t\([0-9]\)\t,\t  \1\t,g' \
-      -e 's,\t\([0-9]\)\t,\t  \1\t,g' \
-      -e 's,\t\([0-9-][0-9]\)\t,\t \1\t,g' \
-      -e 's,\t\([0-9-][0-9]\)\t,\t \1\t,g' \
-      -e 's,\t$,\n,g'
-    i=$(($i+1))
-  done
-done | sort \
-  | awk 'BEGIN{ FS="\t"; OFS=FS; } { printf "%s\t%s\t%-23s\t%-31s\t%-39s\t", $1, $2, $3, $4, $5; print $6, $7, $8, $9, $10, $11, $12, $13; }' \
-  >> "$DATADIR/$WEEKLYFILE"
+txttoweekly
 popd
 
 pushd "$DATADIR"
-echo "Jour	Code projet	Projet	Type	Charge" > "$DAILYFILE"
-sed -e '1d' "$WEEKLYFILE" | while IFS=$'\t' read d1 d2 code projet type lu ma me je ve sa di total; do
-  (
-    date -Idate -d"$d1 + 0 day"
-    echo "$code"
-    echo "$projet"
-    echo "$type"
-  ) | tr '\n' '\t'
-    echo "$lu"
-  (
-    date -Idate -d"$d1 + 1 day"
-    echo "$code"
-    echo "$projet"
-    echo "$type"
-  ) | tr '\n' '\t'
-    echo "$ma"
-  (
-    date -Idate -d"$d1 + 2 day"
-    echo "$code"
-    echo "$projet"
-    echo "$type"
-  ) | tr '\n' '\t'
-    echo "$me"
-  (
-    date -Idate -d"$d1 + 3 day"
-    echo "$code"
-    echo "$projet"
-    echo "$type"
-  ) | tr '\n' '\t'
-    echo "$je"
-  (
-    date -Idate -d"$d1 + 4 day"
-    echo "$code"
-    echo "$projet"
-    echo "$type"
-  ) | tr '\n' '\t'
-    echo "$ve"
-  (
-    date -Idate -d"$d1 + 5 day"
-    echo "$code"
-    echo "$projet"
-    echo "$type"
-  ) | tr '\n' '\t'
-    echo "$sa"
-  (
-    date -Idate -d"$d1 + 6 day"
-    echo "$code"
-    echo "$projet"
-    echo "$type"
-  ) | tr '\n' '\t'
-    echo "$di"
-done | sort >> "$DAILYFILE"
-
-
-projects="$(sed -e '1d' < "$DAILYFILE" | cut -d'	' -f2-4 | sort -u)"
-firstdate="$(sed -n -e '2p' "$DAILYFILE" | cut -d'	' -f1)"
-firstdate="${firstdate//-/}"
-lastdate="$(tail -1 "$DAILYFILE" | cut -d'	' -f1)"
-lastdate="${lastdate//-/}"
-i="$firstdate"
-xx="00"
-declare -A daypartA
-declare -A daypartB
-echo "Créneau	Date	Activité	Code projet	Projet	Type" > "$DAILYSUMFILE"
-while [ $i -le $lastdate ]; do
-  y=$(($i/10000))
-  m=$((($i%10000)/100))
-  d=$(($i%100))
-  ymd="$y-${xx:${#m}}$m-${xx:${#d}}$d"
-  lines="$(sed -n -e "$(grep -n "^$ymd	" "$DAILYFILE" | sed -n -e 's,^\([0-9]*\):.*,\1,g;1p;$p' | tr '\n' ',' | sed -e 's,.$,{/\t0$/d;p},g')" "$DAILYFILE")"
-  while IFS='' read -r project; do
-    sum=$(($(grep -e "^$ymd	$project	" <<< "$lines" | cut -d'	' -f5 | tr '\n' '+')0))
-    case $sum in
-      0)
-        ;;
-      5)
-        if [ -z "${daypartA[$i]}" ]; then
-          daypartA[$i]="$project"
-        else
-          daypartB[$i]="$project"
-        fi
-      ;;
-      10)
-        daypartA[$i]="$project"
-        daypartB[$i]="$project"
-      ;;
-      *)
-        echo "Erreur : $ymd : somme des charges : $sum !" >&2
-        echo "$lines" | sed -e 's,^,\t,g' >&2
-    esac
-  done <<< "$projects"
-  if [ -n "${daypartA[$i]}" ]; then
-    echo "$ymd-A	$ymd	$(timetype "${daypartA[$i]}")	${daypartA[$i]}"
-    echo "$ymd-B	$ymd	$(timetype "${daypartB[$i]}")	${daypartB[$i]}"
-  fi
-  i=$(($i+1))
-  [ $d -gt 31 ] && i=$(($i-($i%100)+101))
-  [ $m -gt 12 ] && i=$(($i-($i%10000)+10101))
-done >> "$DAILYSUMFILE"
+weeklytodaily
+dailytodailysum
 popd
 
 pushd "$TMPDIR" && rm *.txt
