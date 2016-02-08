@@ -3,7 +3,6 @@ ROOTDIR="$(realpath "$(dirname "$0")")"
 DATADIR="$ROOTDIR/data"
 TSDIR="$ROOTDIR/timesheets"
 TMPDIR="$ROOTDIR/temp"
-TMPFILE="$(mktemp)"
 RUN="$(date -Iseconds)"
 RUN="${RUN//:/}"
 RUN="${RUN//+/}"
@@ -78,6 +77,13 @@ timetype() {
   esac
 }
 
+checkcols() {
+  local file="$1"
+  shift
+  shift
+  ! sed -e '/^'"$(printf '[^\\t]*\\t%.0s' "$@")"'[^\t]*$/d' "$file" | grep '.' >&2
+}
+
 monthlytoweeklyfile() {
   local monthly="$1"
   # for each week
@@ -111,15 +117,21 @@ timesheetname() {
 }
 
 tstotxt() {
-  echo "PDF timesheets --> TXT files" >&4
-  for f in *.pdf; do 
-    pdftotext -raw "$f" "$TMPFILE"
-    mv "$TMPFILE" "$TMPDIR/$(timesheetname "$TMPFILE").txt"
+  local desc="PDF timesheets --> TXT files"
+  echo "$desc" >&4
+  parallel pdftotext -raw "{}" ::: *.pdf
+  for f in *.txt; do
+    movets "$f"
   done
 }
 
+movets(){
+  mv "$1" "$TMPDIR/$(timesheetname "$1").txt"
+}
+
 txttoweekly() {
-  echo "TXT files --> Weekly CSV" >&4
+  local desc="TXT files --> Weekly CSV"
+  echo "$desc" >&4
   echo "Début de semaine	Fin de semaine	Code projet	Projet	Type	Lu	Ma	Me	Je	Ve	Sa	Di	Total" > "$WEEKLYFILE"
   for f in "$RUN _ "*.txt; do
     lines="$(($(grep -n '^Total $' "$f" | cut -f1 -d:)+1))$(grep -n '\.00 $' "$f" | while IFS=':' read n l; do echo -n " $(($n+1))"; done)"
@@ -151,10 +163,12 @@ txttoweekly() {
   done | sort \
     | awk 'BEGIN{ FS="\t"; OFS=FS; } { printf "%s\t%s\t%-23s\t%-31s\t%-39s\t", $1, $2, $3, $4, $5; print $6, $7, $8, $9, $10, $11, $12, $13; }' \
     >> "$WEEKLYFILE"
+  checkcols "$WEEKLYFILE" {1..13} || ( echo "$desc failed!" >&2 && false )
 }
 
 weeklytodaily() {
-  echo "Weekly CSV --> Daily CSV" >&4
+  local desc="Weekly CSV --> Daily CSV"
+  echo "$desc" >&4
   echo "Jour	Code projet	Projet	Type	Charge" > "$DAILYFILE"
   sed -e '1d' "$WEEKLYFILE" | while IFS=$'\t' read d1 d2 code projet type lu ma me je ve sa di total; do
     (
@@ -207,10 +221,12 @@ weeklytodaily() {
     ) | tr '\n' '\t'
       echo "$di"
   done | sort >> "$DAILYFILE"
+  checkcols "$DAILYFILE" {1..5} || ( echo "$desc failed!" >&2 && false )
 }
 
 dailytodailysum() {
-  echo "Daily CSV --> Daily sum CSV" >&4
+  local desc="Daily CSV --> Daily sum CSV"
+  echo "$desc" >&4
   projects="$(sed -e '1d' < "$DAILYFILE" | cut -d'	' -f2-4 | sort -u)"
   firstdate="$(sed -n -e '2p' "$DAILYFILE" | cut -d'	' -f1)"
   firstdate="${firstdate//-/}"
@@ -256,26 +272,27 @@ dailytodailysum() {
     [ $d -gt 31 ] && i=$(($i-($i%100)+101))
     [ $m -gt 12 ] && i=$(($i-($i%10000)+10101))
   done >> "$DAILYSUMFILE"
+  checkcols "$DAILYSUMFILE" {1..6} || ( echo "$desc failed!" >&2 && false )
 }
 
 mkdir -p "$TMPDIR" "$DATADIR"
 pushd "$DATADIR" > /dev/null
 
-pushd "$TSDIR" > /dev/null || exit "Timesheet directory $TSDIR not found!" >&2
-tstotxt
+pushd "$TSDIR" > /dev/null || ( echo "Timesheet directory $TSDIR not found!" >&2 && exit 1 )
+tstotxt || exit 2
 popd > /dev/null
 
 pushd "$TMPDIR" > /dev/null
-txttoweekly
+txttoweekly || exit 3
 popd > /dev/null
 
 pushd "$DATADIR" > /dev/null
-weeklytodaily
-dailytodailysum
+weeklytodaily || exit 4
+dailytodailysum || exit 5
 popd > /dev/null
 
 pushd "$TMPDIR" > /dev/null && rm *.txt
-rm "$RUN _ "*.txt 2> /dev/null
+rm -f "$RUN _ "*.txt
 popd > /dev/null
 
 popd > /dev/null
