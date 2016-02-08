@@ -1,17 +1,20 @@
 #!/bin/bash
-DATADIR="$(dirname "$(realpath "$0")")"
-TSDIR="$DATADIR/timesheets"
-TMPDIR="$DATADIR/temp"
+ROOTDIR="$(realpath "$(dirname "$0")")"
+DATADIR="$ROOTDIR/data"
+TSDIR="$ROOTDIR/timesheets"
+TMPDIR="$ROOTDIR/temp"
 TMPFILE="$(mktemp)"
 RUN="$(date -Iseconds)"
 RUN="${RUN//:/}"
 RUN="${RUN//+/}"
 RUN="${RUN//-/}"
-WEEKLYFILE="weekly.csv"
-DAILYFILE="daily.csv"
-DAILYSUMFILE="dailysum.csv"
+WEEKLYFILE="$DATADIR/weekly.csv"
+DAILYFILE="$DATADIR/daily.csv"
+DAILYSUMFILE="$DATADIR/dailysum.csv"
 
 declare -A MONTHS=([janv]=1 [févr]=2 [mars]=3 [avr]=4 [mai]=5 [juin]=6 [juil]=7 [août]=8 [sept]=9 [oct]=10 [nov]=11 [déc]=12)
+
+exec 4>&2
 
 timetype() {
   code="${1%%	*}"
@@ -80,9 +83,10 @@ monthlytoweeklyfile() {
   # for each week
   weekstarts=(18 $(grep -n '^lun\.$' "$monthly" | cut -d: -f1) )
   head -17 "$monthly"
+  # TODO
 }
 
-timesheetfile() {
+timesheetname() {
   local f="$(head -1 "$1")"
   local tsref="$(sed -n -e '5{s,^[^A-Z0-9]*\(TS[0-9][0-9]*\)[^A-Z0-9].*$,\1,g;p}' "$1" | tr -d '\n')"
   f="${f// / }"
@@ -107,14 +111,15 @@ timesheetfile() {
 }
 
 tstotxt() {
+  echo "PDF timesheets --> TXT files" >&4
   for f in *.pdf; do 
-  #  pdftotext -layout "$f" "$(timesheetfile "$f")"
     pdftotext -raw "$f" "$TMPFILE"
-    mv "$TMPFILE" "$TMPDIR/$(timesheetfile "$TMPFILE").txt"
+    mv "$TMPFILE" "$TMPDIR/$(timesheetname "$TMPFILE").txt"
   done
 }
 
 txttoweekly() {
+  echo "TXT files --> Weekly CSV" >&4
   echo "Début de semaine	Fin de semaine	Code projet	Projet	Type	Lu	Ma	Me	Je	Ve	Sa	Di	Total" > "$WEEKLYFILE"
   for f in "$RUN _ "*.txt; do
     lines="$(($(grep -n '^Total $' "$f" | cut -f1 -d:)+1))$(grep -n '\.00 $' "$f" | while IFS=':' read n l; do echo -n " $(($n+1))"; done)"
@@ -128,9 +133,11 @@ txttoweekly() {
         | iconv -f utf-8 -t ascii//translit \
         | tr -d "'^\`" \
         | sed \
+        -e 's,­,-,g' \
+	-e 's, , ,g' \
         -e 's,-\t,-,g' \
         -e 's,\t, ,g' \
-        -e 's,^\([A-Z0-9]*-*[A-Z0-9]*\)  *\(.*\)  *\(Facturable  *[A-Z ]*[A-Z]  \|Non facturable    \|Non facturable  [A-Z][A-Z]* *[A-Z][A-Z]*  \)  \([0-9.-]*\)  \([0-9.-]*\)  \([0-9.-]*\)  \([0-9.-]*\)  \([0-9.-]*\)  *[0-9.-][0-9.-]*  *\([0-9.-][0-9.-]*\) *$,\1\t\2\t\3\t\4\t\5\t\6\t\7\t\8\t0.00\t0.00\t\9\t,g' \
+        -e 's,^\([A-Z0-9][A-Z0-9_-]*\)  *\(.*\)  *\(Facturable  *[A-Z][A-Z ]*[A-Z]  \|Non facturable    \|Non facturable  [A-Z][A-Z ]*[A-Z]  \)  \([0-9.-]*\)  \([0-9.-]*\)  \([0-9.-]*\)  \([0-9.-]*\)  \([0-9.-]*\)  *[0-9.-][0-9.-]*  *\([0-9.-][0-9.-]*\) *$,\1\t\2\t\3\t\4\t\5\t\6\t\7\t\8\t0.00\t0.00\t\9\t,g' \
         -e 's,\.00,,g' \
         -e 's,\t\t,\t0\t,g' \
         -e 's,\t\t,\t0\t,g' \
@@ -143,10 +150,11 @@ txttoweekly() {
     done
   done | sort \
     | awk 'BEGIN{ FS="\t"; OFS=FS; } { printf "%s\t%s\t%-23s\t%-31s\t%-39s\t", $1, $2, $3, $4, $5; print $6, $7, $8, $9, $10, $11, $12, $13; }' \
-    >> "$DATADIR/$WEEKLYFILE"
+    >> "$WEEKLYFILE"
 }
 
 weeklytodaily() {
+  echo "Weekly CSV --> Daily CSV" >&4
   echo "Jour	Code projet	Projet	Type	Charge" > "$DAILYFILE"
   sed -e '1d' "$WEEKLYFILE" | while IFS=$'\t' read d1 d2 code projet type lu ma me je ve sa di total; do
     (
@@ -202,6 +210,7 @@ weeklytodaily() {
 }
 
 dailytodailysum() {
+  echo "Daily CSV --> Daily sum CSV" >&4
   projects="$(sed -e '1d' < "$DAILYFILE" | cut -d'	' -f2-4 | sort -u)"
   firstdate="$(sed -n -e '2p' "$DAILYFILE" | cut -d'	' -f1)"
   firstdate="${firstdate//-/}"
@@ -249,25 +258,25 @@ dailytodailysum() {
   done >> "$DAILYSUMFILE"
 }
 
-mkdir -p "$TMPDIR"
-pushd "$DATADIR"
+mkdir -p "$TMPDIR" "$DATADIR"
+pushd "$DATADIR" > /dev/null
 
-pushd "$TSDIR" || exit "Timesheet directory $TSDIR not found!" >&2
+pushd "$TSDIR" > /dev/null || exit "Timesheet directory $TSDIR not found!" >&2
 tstotxt
-popd
+popd > /dev/null
 
-pushd "$TMPDIR"
+pushd "$TMPDIR" > /dev/null
 txttoweekly
-popd
+popd > /dev/null
 
-pushd "$DATADIR"
+pushd "$DATADIR" > /dev/null
 weeklytodaily
 dailytodailysum
-popd
+popd > /dev/null
 
-pushd "$TMPDIR" && rm *.txt
+pushd "$TMPDIR" > /dev/null && rm *.txt
 rm "$RUN _ "*.txt 2> /dev/null
-popd
+popd > /dev/null
 
-popd
+popd > /dev/null
 
