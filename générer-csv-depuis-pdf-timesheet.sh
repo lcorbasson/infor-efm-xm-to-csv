@@ -276,6 +276,10 @@ dailytodailysum() {
 }
 
 mkdir -p "$TMPDIR" "$DATADIR"
+
+pushd "$TMPDIR" > /dev/null && rm *.txt
+popd > /dev/null
+
 pushd "$DATADIR" > /dev/null
 
 pushd "$TSDIR" > /dev/null || ( echo "Timesheet directory $TSDIR not found!" >&2 && exit 1 )
@@ -291,7 +295,7 @@ weeklytodaily || exit 4
 dailytodailysum || exit 5
 popd > /dev/null
 
-pushd "$TMPDIR" > /dev/null && rm *.txt
+pushd "$TMPDIR"
 rm -f "$RUN _ "*.txt
 popd > /dev/null
 
