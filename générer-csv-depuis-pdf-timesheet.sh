@@ -119,7 +119,7 @@ timesheetname() {
 tstotxt() {
   local desc="PDF timesheets --> TXT files"
   echo "$desc" >&4
-  parallel pdftotext -raw "{}" ::: *.pdf
+  parallel --will-cite pdftotext -raw "{}" ::: *.pdf
   for f in *.txt; do
     movets "$f"
   done
@@ -277,7 +277,7 @@ dailytodailysum() {
 
 mkdir -p "$TMPDIR" "$DATADIR"
 
-pushd "$TMPDIR" > /dev/null && rm *.txt
+pushd "$TMPDIR" > /dev/null && rm -f *.txt
 popd > /dev/null
 
 pushd "$DATADIR" > /dev/null
