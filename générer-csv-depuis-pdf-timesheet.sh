@@ -129,48 +129,45 @@ movets(){
   mv "$1" "$TMPDIR/$(timesheetname "$1").txt"
 }
 
-txttoweekly() {
+txttoweeklycsv() {
   local desc="TXT files --> Weekly CSV"
   echo "$desc" >&4
-  echo "Début de semaine	Fin de semaine	Code projet	Projet	Type	Lu	Ma	Me	Je	Ve	Sa	Di	Total" > "$WEEKLYFILE"
-  for f in "$RUN _ "*.txt; do
-    lines="$(($(grep -n '^Total $' "$f" | cut -f1 -d:)+1))$(grep -n '\.00 $' "$f" | while IFS=':' read n l; do echo -n " $(($n+1))"; done)"
-    read -a lines <<< "$lines"
-    unset lines[${#lines[@]}-1]
-    i=1
-    while [ $i -lt ${#lines[@]} ]; do
-      echo -n "$f" \
-        | sed -e 's,.* _ \([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\) _ \([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\) _ .*,\1\t\2\t,g'
-      sed -n -e "${lines[$i-1]},$((${lines[$i]}-1))"'p' "$f" | tr '\n' '\t' \
-        | iconv -f utf-8 -t ascii//translit \
-        | tr -d "'^\`" \
-        | sed \
-        -e 's,­,-,g' \
+  local f="$1"
+  echo "Début de semaine	Fin de semaine	Code projet	Projet	Type	Lu	Ma	Me	Je	Ve	Sa	Di	Total"
+  lines="$(($(grep -n '^Total $' "$f" | cut -f1 -d:)+1))$(grep -n '\.00 $' "$f" | while IFS=':' read n l; do echo -n " $(($n+1))"; done)"
+  read -a lines <<< "$lines"
+  unset lines[${#lines[@]}-1]
+  i=1
+  while [ $i -lt ${#lines[@]} ]; do
+    echo -n "$f" \
+      | sed -e 's,.* _ \([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\) _ \([0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]\) _ .*,\1\t\2\t,g'
+    sed -n -e "${lines[$i-1]},$((${lines[$i]}-1))"'p' "$f" | tr '\n' '\t' \
+      | iconv -f utf-8 -t ascii//translit \
+      | tr -d "'^\`" \
+      | sed \
+      -e 's,­,-,g' \
 	-e 's, , ,g' \
-        -e 's,-\t,-,g' \
-        -e 's,\t, ,g' \
-        -e 's,^\([A-Z0-9][A-Z0-9_-]*\)  *\(.*\)  *\(Facturable  *[A-Z][A-Z ]*[A-Z]  \|Non facturable    \|Non facturable  [A-Z][A-Z ]*[A-Z]  \)  \([0-9.-]*\)  \([0-9.-]*\)  \([0-9.-]*\)  \([0-9.-]*\)  \([0-9.-]*\)  *[0-9.-][0-9.-]*  *\([0-9.-][0-9.-]*\) *$,\1\t\2\t\3\t\4\t\5\t\6\t\7\t\8\t0.00\t0.00\t\9\t,g' \
-        -e 's,\.00,,g' \
-        -e 's,\t\t,\t0\t,g' \
-        -e 's,\t\t,\t0\t,g' \
-        -e 's,\t\([0-9]\)\t,\t  \1\t,g' \
-        -e 's,\t\([0-9]\)\t,\t  \1\t,g' \
-        -e 's,\t\([0-9-][0-9]\)\t,\t \1\t,g' \
-        -e 's,\t\([0-9-][0-9]\)\t,\t \1\t,g' \
-        -e 's,\t$,\n,g'
-      i=$(($i+1))
-    done
+      -e 's,-\t,-,g' \
+      -e 's,\t, ,g' \
+      -e 's,^\([A-Z0-9][A-Z0-9_-]*\)  *\(.*\)  *\(Facturable  *[A-Z][A-Z ]*[A-Z]  \|Non facturable    \|Non facturable  [A-Z][A-Z ]*[A-Z]  \)  \([0-9.-]*\)  \([0-9.-]*\)  \([0-9.-]*\)  \([0-9.-]*\)  \([0-9.-]*\)  *[0-9.-][0-9.-]*  *\([0-9.-][0-9.-]*\) *$,\1\t\2\t\3\t\4\t\5\t\6\t\7\t\8\t0.00\t0.00\t\9\t,g' \
+      -e 's,\.00,,g' \
+      -e 's,\t\t,\t0\t,g' \
+      -e 's,\t\t,\t0\t,g' \
+      -e 's,\t\([0-9]\)\t,\t  \1\t,g' \
+      -e 's,\t\([0-9]\)\t,\t  \1\t,g' \
+      -e 's,\t\([0-9-][0-9]\)\t,\t \1\t,g' \
+      -e 's,\t\([0-9-][0-9]\)\t,\t \1\t,g' \
+      -e 's,\t$,\n,g'
+    i=$(($i+1))
   done | sort \
-    | awk 'BEGIN{ FS="\t"; OFS=FS; } { printf "%s\t%s\t%-23s\t%-31s\t%-39s\t", $1, $2, $3, $4, $5; print $6, $7, $8, $9, $10, $11, $12, $13; }' \
-    >> "$WEEKLYFILE"
-  checkcols "$WEEKLYFILE" {1..13} || ( echo "$desc failed!" >&2 && false )
+    | awk 'BEGIN{ FS="\t"; OFS=FS; } { printf "%s\t%s\t%-23s\t%-31s\t%-39s\t", $1, $2, $3, $4, $5; print $6, $7, $8, $9, $10, $11, $12, $13; }'
 }
 
-weeklytodaily() {
+weeklycsvtodailycsv() {
   local desc="Weekly CSV --> Daily CSV"
   echo "$desc" >&4
-  echo "Jour	Code projet	Projet	Type	Charge" > "$DAILYFILE"
-  sed -e '1d' "$WEEKLYFILE" | while IFS=$'\t' read d1 d2 code projet type lu ma me je ve sa di total; do
+  echo "Jour	Code projet	Projet	Type	Charge"
+  sed -e '1d' | while IFS=$'\t' read d1 d2 code projet type lu ma me je ve sa di total; do
     (
       date -Idate -d"$d1 + 0 day"
       echo "$code"
@@ -220,29 +217,44 @@ weeklytodaily() {
       echo "$type"
     ) | tr '\n' '\t'
       echo "$di"
-  done | sort >> "$DAILYFILE"
-  checkcols "$DAILYFILE" {1..5} || ( echo "$desc failed!" >&2 && false )
+  done | sort
 }
 
-dailytodailysum() {
+txttodailysum() {
+  local f="$1"
+  txttoweeklycsv "$f" | weeklycsvtodailycsv > "$f.daily.csv"
+  dailycsvtodailysumcsv "$f.daily.csv" > "$f.dailysum.csv"
+}
+
+alltxttodailysumcsv() {
+  for f in "$RUN _ "*.txt; do
+    txttodailysum "$f"
+  done
+  for f in *".dailysum.csv"; do
+    sed -e '1d' "$f"
+  done > "$DAILYSUMFILE"
+}
+
+dailycsvtodailysumcsv() {
   local desc="Daily CSV --> Daily sum CSV"
   echo "$desc" >&4
-  projects="$(sed -e '1d' < "$DAILYFILE" | cut -d'	' -f2-4 | sort -u)"
-  firstdate="$(sed -n -e '2p' "$DAILYFILE" | cut -d'	' -f1)"
+  local f="$1"
+  projects="$(sed -e '1d' < "$f" | cut -d'	' -f2-4 | sort -u)"
+  firstdate="$(sed -n -e '2p' "$f" | cut -d'	' -f1)"
   firstdate="${firstdate//-/}"
-  lastdate="$(tail -1 "$DAILYFILE" | cut -d'	' -f1)"
+  lastdate="$(tail -1 "$f" | cut -d'	' -f1)"
   lastdate="${lastdate//-/}"
   i="$firstdate"
   xx="00"
   declare -A daypartA
   declare -A daypartB
-  echo "Créneau	Date	Activité	Code projet	Projet	Type" > "$DAILYSUMFILE"
+  echo "Créneau	Date	Activité	Code projet	Projet	Type"
   while [ $i -le $lastdate ]; do
     y=$(($i/10000))
     m=$((($i%10000)/100))
     d=$(($i%100))
     ymd="$y-${xx:${#m}}$m-${xx:${#d}}$d"
-    lines="$(sed -n -e "$(grep -n "^$ymd	" "$DAILYFILE" | sed -n -e 's,^\([0-9]*\):.*,\1,g;1p;$p' | tr '\n' ',' | sed -e 's,.$,{/\t0$/d;p},g')" "$DAILYFILE")"
+    lines="$(sed -n -e "$(grep -n "^$ymd	" "$f" | sed -n -e 's,^\([0-9]*\):.*,\1,g;1p;$p' | tr '\n' ',' | sed -e 's,.$,{/\t0$/d;p},g')" "$f")"
     while IFS='' read -r project; do
       sum=$(($(grep -e "^$ymd	$project	" <<< "$lines" | cut -d'	' -f5 | tr '\n' '+')0))
       case $sum in
@@ -271,8 +283,7 @@ dailytodailysum() {
     i=$(($i+1))
     [ $d -gt 31 ] && i=$(($i-($i%100)+101))
     [ $m -gt 12 ] && i=$(($i-($i%10000)+10101))
-  done >> "$DAILYSUMFILE"
-  checkcols "$DAILYSUMFILE" {1..6} || ( echo "$desc failed!" >&2 && false )
+  done
 }
 
 mkdir -p "$TMPDIR" "$DATADIR"
@@ -287,12 +298,16 @@ tstotxt || exit 2
 popd > /dev/null
 
 pushd "$TMPDIR" > /dev/null
-txttoweekly || exit 3
+#txttoweekly || exit 3
+alltxttodailysumcsv
+#  checkcols "$WEEKLYFILE" {1..13} || ( echo "$desc failed!" >&2 && false )
 popd > /dev/null
 
 pushd "$DATADIR" > /dev/null
-weeklytodaily || exit 4
-dailytodailysum || exit 5
+#weeklytodaily || exit 4
+#  checkcols "$DAILYFILE" {1..5} || ( echo "$desc failed!" >&2 && false )
+#dailytodailysum || exit 5
+#  checkcols "$DAILYSUMFILE" {1..6} || ( echo "$desc failed!" >&2 && false )
 popd > /dev/null
 
 pushd "$TMPDIR"
