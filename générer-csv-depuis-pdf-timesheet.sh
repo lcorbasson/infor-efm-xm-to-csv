@@ -76,6 +76,7 @@ timetype() {
       ;;
   esac
 }
+export -f timetype
 
 checkcols() {
   local file="$1"
@@ -83,6 +84,7 @@ checkcols() {
   shift
   ! sed -e '/^'"$(printf '[^\\t]*\\t%.0s' "$@")"'[^\t]*$/d' "$file" | grep '.' >&2
 }
+export -f checkcols
 
 monthlytoweeklyfile() {
   local monthly="$1"
@@ -115,6 +117,7 @@ timesheetname() {
   local end="${d2[2]}-$(printf "%02d" "${MONTHS[${d2[1]%.}]}")-$(printf "%02d" "${d2[0]}")"
   echo "$RUN _ $timesheet _ $beginning _ $end _ $tsref"
 }
+export -f timesheetname
 
 tstotxt() {
   local desc="PDF timesheets --> TXT files"
@@ -124,16 +127,18 @@ tstotxt() {
     movets "$f"
   done
 }
+export -f tstotxt
 
 movets(){
   mv "$1" "$TMPDIR/$(timesheetname "$1").txt"
 }
+export -f movets
 
 txttoweeklycsv() {
   local desc="TXT files --> Weekly CSV"
   echo "$desc" >&4
   local f="$1"
-  echo "Début de semaine	Fin de semaine	Code projet	Projet	Type	Lu	Ma	Me	Je	Ve	Sa	Di	Total"
+#  echo "Début de semaine	Fin de semaine	Code projet	Projet	Type	Lu	Ma	Me	Je	Ve	Sa	Di	Total"
   lines="$(($(grep -n '^Total $' "$f" | cut -f1 -d:)+1))$(grep -n '\.00 $' "$f" | while IFS=':' read n l; do echo -n " $(($n+1))"; done)"
   read -a lines <<< "$lines"
   unset lines[${#lines[@]}-1]
@@ -162,12 +167,14 @@ txttoweeklycsv() {
   done | sort \
     | awk 'BEGIN{ FS="\t"; OFS=FS; } { printf "%s\t%s\t%-23s\t%-31s\t%-39s\t", $1, $2, $3, $4, $5; print $6, $7, $8, $9, $10, $11, $12, $13; }'
 }
+export -f txttoweeklycsv
 
 weeklycsvtodailycsv() {
   local desc="Weekly CSV --> Daily CSV"
   echo "$desc" >&4
-  echo "Jour	Code projet	Projet	Type	Charge"
-  sed -e '1d' | while IFS=$'\t' read d1 d2 code projet type lu ma me je ve sa di total; do
+#  echo "Jour	Code projet	Projet	Type	Charge"
+#  sed -e '1d' | \
+  while IFS=$'\t' read d1 d2 code projet type lu ma me je ve sa di total; do
     (
       date -Idate -d"$d1 + 0 day"
       echo "$code"
@@ -219,28 +226,39 @@ weeklycsvtodailycsv() {
       echo "$di"
   done | sort
 }
+export -f weeklycsvtodailycsv
 
-txttodailysum() {
+txttodailycsv() {
   local f="$1"
   txttoweeklycsv "$f" | weeklycsvtodailycsv > "$f.daily.csv"
-  dailycsvtodailysumcsv "$f.daily.csv" > "$f.dailysum.csv"
 }
+export -f txttodailycsv
 
 alltxttodailysumcsv() {
-  for f in "$RUN _ "*.txt; do
-    txttodailysum "$f"
-  done
-  for f in *".dailysum.csv"; do
-    sed -e '1d' "$f"
-  done > "$DAILYSUMFILE"
+  #parallel --will-cite --linebuffer txttodailycsv ::: "$RUN _ "*.txt ::: "$header" 4>&2 >> "$DAILYSUMFILE"
+  #parallel --will-cite txttodailycsv ::: "$RUN _ "*.txt 4>&2
+  parallel --will-cite 'txttodailycsv {} 4>&2' ::: "$RUN _ "*.txt
+  echo "Créneau	Date	Activité	Code projet	Projet	Type" > "$DAILYSUMFILE"
+  parallel --will-cite 'RUN="'"$RUN"'" dailycsvstodailysumcsv {} 4>&2' ::: "$RUN _ 1 - "*".daily.csv"
+  cat "$RUN _ "*".dailysum.csv" >> "$DAILYSUMFILE"
 }
+export -f alltxttodailysumcsv
+
+dailycsvstodailysumcsv() {
+  local d="$1"
+  d="${d#* _ }"
+  d="${d% _ TS*}"
+  sort "$RUN _ "*"$d _ TS"*".daily.csv" > "$RUN _ $d.allentries.csv"
+  dailycsvtodailysumcsv "$RUN _ $d.allentries.csv" > "$RUN _ $d.dailysum.csv"
+}
+export -f dailycsvstodailysumcsv
 
 dailycsvtodailysumcsv() {
   local desc="Daily CSV --> Daily sum CSV"
   echo "$desc" >&4
   local f="$1"
-  projects="$(sed -e '1d' < "$f" | cut -d'	' -f2-4 | sort -u)"
-  firstdate="$(sed -n -e '2p' "$f" | cut -d'	' -f1)"
+  projects="$(cut -d'	' -f2-4 "$f" | sort -u)"
+  firstdate="$(head -1 "$f" | cut -d'	' -f1)"
   firstdate="${firstdate//-/}"
   lastdate="$(tail -1 "$f" | cut -d'	' -f1)"
   lastdate="${lastdate//-/}"
@@ -248,7 +266,7 @@ dailycsvtodailysumcsv() {
   xx="00"
   declare -A daypartA
   declare -A daypartB
-  echo "Créneau	Date	Activité	Code projet	Projet	Type"
+#  echo "Créneau	Date	Activité	Code projet	Projet	Type"
   while [ $i -le $lastdate ]; do
     y=$(($i/10000))
     m=$((($i%10000)/100))
@@ -285,6 +303,7 @@ dailycsvtodailysumcsv() {
     [ $m -gt 12 ] && i=$(($i-($i%10000)+10101))
   done
 }
+export -f dailycsvtodailysumcsv
 
 mkdir -p "$TMPDIR" "$DATADIR"
 
