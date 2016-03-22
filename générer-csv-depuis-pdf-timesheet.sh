@@ -1,4 +1,27 @@
 #!/bin/bash
+check_prerequisites() { #VERSION: 0.0.0:
+	for command in \
+		awk \
+		cat \
+		date \
+		grep \
+		head \
+		iconv \
+		mkdir \
+		parallel \
+		rm \
+		sed \
+		sort \
+		tr \
+		; do
+		if [ -z "$(which "$command")" ]; then
+			echo "$command is required; aborting." >&2
+			exit 254
+		fi
+	done
+}
+check_prerequisites #END check_prerequisites
+
 ROOTDIR="$(realpath "$(dirname "$0")")"
 DATADIR="$ROOTDIR/data"
 TSDIR="$ROOTDIR/timesheets"
@@ -121,8 +144,9 @@ export -f timesheetname
 
 tstotxt() {
   local desc="PDF timesheets --> TXT files"
-  echo "$desc" >&4
-  parallel --will-cite pdftotext -raw "{}" ::: *.pdf
+#  echo "$desc" >&4
+  echo "1/3 $desc" >&2
+  parallel --bar --will-cite pdftotext -raw "{}" ::: *.pdf
   for f in *.txt; do
     movets "$f"
   done
@@ -136,7 +160,7 @@ export -f movets
 
 txttoweeklycsv() {
   local desc="TXT files --> Weekly CSV"
-  echo "$desc" >&4
+#  echo "$desc" >&4
   local f="$1"
 #  echo "Début de semaine	Fin de semaine	Code projet	Projet	Type	Lu	Ma	Me	Je	Ve	Sa	Di	Total"
   lines="$(($(grep -n '^Total $' "$f" | cut -f1 -d:)+1))$(grep -n '\.00 $' "$f" | while IFS=':' read n l; do echo -n " $(($n+1))"; done)"
@@ -171,7 +195,7 @@ export -f txttoweeklycsv
 
 weeklycsvtodailycsv() {
   local desc="Weekly CSV --> Daily CSV"
-  echo "$desc" >&4
+#  echo "$desc" >&4
 #  echo "Jour	Code projet	Projet	Type	Charge"
 #  sed -e '1d' | \
   while IFS=$'\t' read d1 d2 code projet type lu ma me je ve sa di total; do
@@ -237,9 +261,13 @@ export -f txttodailycsv
 alltxttodailysumcsv() {
   #parallel --will-cite --linebuffer txttodailycsv ::: "$RUN _ "*.txt ::: "$header" 4>&2 >> "$DAILYSUMFILE"
   #parallel --will-cite txttodailycsv ::: "$RUN _ "*.txt 4>&2
-  parallel --will-cite 'txttodailycsv {} 4>&2' ::: "$RUN _ "*.txt
+  local desc="TXT files --> Daily CSV"
+  echo "2/3 $desc" >&2
+  parallel --bar --will-cite 'txttodailycsv {} 4>&2' ::: "$RUN _ "*.txt
+  local desc="Daily CSV --> Daily sum CSV"
+  echo "3/3 $desc" >&2
   echo "Créneau	Date	Activité	Code projet	Projet	Type" > "$DAILYSUMFILE"
-  parallel --will-cite 'RUN="'"$RUN"'" dailycsvstodailysumcsv {} 4>&2' ::: "$RUN _ 1 - "*".daily.csv"
+  parallel --bar --will-cite 'RUN="'"$RUN"'" dailycsvstodailysumcsv {} 4>&2' ::: "$RUN _ 1 - "*".daily.csv"
   cat "$RUN _ "*".dailysum.csv" >> "$DAILYSUMFILE"
 }
 export -f alltxttodailysumcsv
@@ -255,7 +283,7 @@ export -f dailycsvstodailysumcsv
 
 dailycsvtodailysumcsv() {
   local desc="Daily CSV --> Daily sum CSV"
-  echo "$desc" >&4
+#  echo "$desc" >&4
   local f="$1"
   projects="$(cut -d'	' -f2-4 "$f" | sort -u)"
   firstdate="$(head -1 "$f" | cut -d'	' -f1)"
